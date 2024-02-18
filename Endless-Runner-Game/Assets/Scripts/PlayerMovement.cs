@@ -4,86 +4,100 @@ using UnityEngine;
 
 public class PlayerMovement : MonoBehaviour
 {
-    Rigidbody2D rb;
-    Animator animator;
-    [SerializeField] Transform playerSprite;
-    
-    float horizontal;
-    [SerializeField] float speed,jumpHeight;
+
+    [Header("References")]
+    public Rigidbody2D rb;
+    public Animator animator;
+
+    [Header("Movement")]
+    public float horizontal;
+    [SerializeField] float speed;
     bool facingRight = true;
+    public bool isRunnig;
+
+
+    [Header("Jump & DoubleJump")]
+    [SerializeField] float jumpHeight;
     [SerializeField] LayerMask groundLayer;
     [SerializeField] Transform groundCheck;
     [SerializeField] Vector2 groundCheckVector;
+    [SerializeField] float groundCheckRadius;
+    [SerializeField] float doubleJumpingPower = 6f;
+    [SerializeField] public bool doubleJump;
 
-    bool isWallJumping;
-    float wallJumpingDirection;
-    float wallJumpingTime = 0.2f;
-    float wallJumpingCounter;
-    float wallJumpingDuration = 0.4f;
+    [Header("WallSliding & WallJumping")]
+    [SerializeField] float wallJumpingTime = 0.2f;
+    [SerializeField] float wallJumpingDuration = 0.4f;
     Vector2 wallJumpingPower = new Vector2(8f, 16f);
-
+    [SerializeField] float wallCheckRadius, wallSlidingSpeed;
+    float  wallJumpingDirection, wallJumpingCounter;
+    public bool isWallSliding, isWallJumping;
+    bool isWallDetected;
     [SerializeField] Transform wallCheck;
     [SerializeField] LayerMask wallLayer;
-    [SerializeField] float wallCheckRadius, wallSlidingSpeed;
-    bool isWallSliding,isWallDetected;
 
+    IState currentState;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
-        //animator = transform.GetChild(0).GetComponent<Animator>();
     }
 
+    private void Start()
+    {
+        currentState = new IdleState();
+        currentState.EnterState(this);
+    }
+
+    public void ChangeState(IState newState)
+    {
+        currentState.ExitState(this);
+        currentState = newState;
+        currentState.EnterState(this);
+    }
     private void Update()
     {
+        currentState.UpdateState(this);
+
         horizontal = Input.GetAxis("Horizontal");
-
-        if (Input.GetKeyDown(KeyCode.Space) && IsGrounded())
-        {
-            rb.AddForce(new Vector2(rb.velocity.x,jumpHeight));
-            animator.SetBool("Jump", true);
-        }
-
-        if (horizontal != 0)
-        {
-            animator.SetBool("canRun", true);
-        }
-        else
-        {
-            animator.SetBool("canRun", false);
-        }
-
-        if (Input.GetKeyDown(KeyCode.LeftShift))
-        {
-            if (animator.GetBool("isSliding") == true)
-            {
-                return;
-            }
-            animator.SetBool("isSliding", true);
-        }
-        else if (Input.GetKeyUp(KeyCode.LeftShift))
-        {
-            animator.SetBool("isSliding", false);
-        }
-
-        if (Input.GetKeyDown(KeyCode.LeftControl))
-        {
-            animator.SetBool("WallSlide",!animator.GetBool("WallSlide"));
-        }
-
-        
-
-        WallSlide();
-        WallJump();
 
         if (!isWallJumping)
         {
             Flip();
         }
-
-        IsFalling();
     }
+
+    public void IsSliding()
+    {
+        if (Input.GetKeyUp(KeyCode.LeftShift))
+        {
+            animator.SetBool("isSliding",false);
+        }
+    }
+
+    public void Jump()
+    {
+        if (IsGrounded() || doubleJump)
+        {
+            if (IsGrounded())
+            {
+                doubleJump = false;
+            }
+
+            if (!doubleJump)
+            {
+                rb.velocity = new Vector2(rb.velocity.x, jumpHeight);
+                doubleJump = true;
+            }
+            else
+            {
+                rb.velocity = new Vector2(rb.velocity.x, doubleJumpingPower);
+                doubleJump = false;
+            }
+        }
+    }
+
     private void FixedUpdate()
     {
         if (!isWallJumping)
@@ -93,34 +107,23 @@ public class PlayerMovement : MonoBehaviour
 
     }
 
-    private bool IsGrounded()
+    public bool IsGrounded()
     {
-        return Physics2D.OverlapBox(groundCheck.position, groundCheckVector,0, groundLayer);
-
+        //return Physics2D.OverlapBox(groundCheck.position, groundCheckVector,0, groundLayer);
+        return Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
     }
 
-    private bool IsWalled()
+    public bool IsWalled()
     {
         return Physics2D.OverlapCircle(wallCheck.position, wallCheckRadius, wallLayer);
     }
 
-    private void WallSlide()
+    public void WallSlide()
     {
-        if (IsWalled() && !IsGrounded() && horizontal != 0f)
-        {
-            isWallSliding = true;
-            rb.velocity = new Vector3(rb.velocity.x, Mathf.Clamp(rb.velocity.y, -wallSlidingSpeed, float.MaxValue));
-            Debug.Log("wall detected");
-            animator.SetBool("WallSlide", true);
-        }
-        else
-        {
-            isWallSliding = false;
-            animator.SetBool("WallSlide", false);
-        }
+        rb.velocity = new Vector3(rb.velocity.x, Mathf.Clamp(rb.velocity.y, -wallSlidingSpeed, float.MaxValue));
     }
 
-    private void WallJump()
+    public void WallJump()
     {
         if (isWallSliding)
         {
@@ -136,11 +139,16 @@ public class PlayerMovement : MonoBehaviour
         }
 
 
-        if (Input.GetButtonDown("Jump") && wallJumpingCounter > 0f)
+        if (Input.GetButtonDown("Jump") && wallJumpingCounter > 0f && !IsGrounded())
         {
             isWallJumping = true;
+            isWallSliding = false;
+
             rb.velocity = new Vector2(wallJumpingDirection * wallJumpingPower.x, wallJumpingPower.y);
             wallJumpingCounter = 0f;
+
+            animator.SetBool("WallSlide", false);
+            animator.SetBool("Jump", true);
 
             if (transform.localScale.x != wallJumpingDirection)
             {
@@ -157,6 +165,7 @@ public class PlayerMovement : MonoBehaviour
     private void StopWallJumping()
     {
         isWallJumping = false;
+        animator.SetBool("Jump", false);
     }
 
     private void Flip()
@@ -172,21 +181,8 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnDrawGizmos()
     {
-        Gizmos.DrawWireCube(groundCheck.position, groundCheckVector);
+        Gizmos.DrawWireSphere(groundCheck.position, groundCheckRadius);
 
         Gizmos.DrawWireSphere(wallCheck.position, wallCheckRadius);
-    }
-
-    private void IsFalling()
-    {
-        if(rb.velocity.y < 0 && !IsGrounded())
-        {
-            animator.SetBool("Jump", false);
-            animator.SetBool("isFalling", true);
-        }
-        else
-        {
-            animator.SetBool("isFalling", false);
-        }
     }
 }
